@@ -133,3 +133,7 @@ dialog {
 .responsive-filters .form-wrapper {
   @apply flex-col items-start xl:flex-row xl:items-center;
 }
+
+.custom-list-header {
+  @apply flex justify-between border-b px-6 py-[14px] text-gray-600;
+}

@@ -7,6 +7,7 @@ import {
   QuestionsIcon,
   SettingsIcon,
   TagsIcon,
+  CheckboxIcon,
 } from "~/components/icons/library";
 import { CrispButton } from "~/components/marketing/crisp";
 import type { loader } from "~/routes/_layout+/_layout";
@@ -34,6 +35,11 @@ const menuItemsTop = [
     icon: <LocationMarkerIcon />,
     to: "locations",
     label: "Locations",
+  },
+  {
+    icon: <CheckboxIcon />,
+    to: "checklists",
+    label: "Checklists",
   },
 ];
 const menuItemsBottom = [
