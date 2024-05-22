@@ -51,7 +51,7 @@ export function TeamMembersActionsDropdown({
         className="order w-[180px] rounded-md bg-white p-[6px] text-right "
         ref={ref}
       >
-        <DropdownMenuItem className="text-gray-700hover:text-gray-700 p-4 hover:bg-slate-100">
+        <DropdownMenuItem className="p-4 text-gray-700 hover:bg-slate-100 hover:text-gray-800">
           <ControlledActionButton
             canUseFeature={!isPersonalOrg}
             buttonContent={{

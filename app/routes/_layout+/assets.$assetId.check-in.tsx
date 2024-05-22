@@ -4,21 +4,27 @@ import { Form, useLoaderData, useNavigation } from "@remix-run/react";
 import { z } from "zod";
 import { UserXIcon } from "~/components/icons/library";
 import { Button } from "~/components/shared/button";
+
 import { db } from "~/database/db.server";
 import { createNote } from "~/modules/asset/service.server";
 import { releaseCustody } from "~/modules/custody/service.server";
+import { assetCustodyRevokedEmailText } from "~/modules/invite/helpers";
 import { getUserByID } from "~/modules/user/service.server";
 import styles from "~/styles/layout/custom-modal.css?url";
 import { sendNotification } from "~/utils/emitter/send-notification.server";
+
 import { ShelfError, makeShelfError } from "~/utils/error";
 import { isFormProcessing } from "~/utils/form";
 import { data, error, getParams, parseData } from "~/utils/http.server";
+import { sendEmail } from "~/utils/mail.server";
+import { validEmail } from "~/utils/misc";
 import {
   PermissionAction,
   PermissionEntity,
 } from "~/utils/permissions/permission.validator.server";
 import { requirePermission } from "~/utils/roles.server";
 
+/** @TODO this needs review */
 export async function loader({ context, request, params }: LoaderFunctionArgs) {
   const authSession = context.getSession();
   const { userId } = authSession;
@@ -35,13 +41,18 @@ export async function loader({ context, request, params }: LoaderFunctionArgs) {
     });
 
     const custody = await db.custody
-      .findUnique({
+      .findUniqueOrThrow({
         where: { assetId },
         select: {
           custodian: {
             select: {
               id: true,
               name: true,
+              user: {
+                select: {
+                  email: true,
+                },
+              },
             },
           },
         },
@@ -114,17 +125,23 @@ export const action = async ({
 
     if (!asset.custody) {
       const formData = await request.formData();
-      const { custodianName } = parseData(
+      const { custodianName, custodianEmail } = parseData(
         formData,
         z.object({
           custodianName: z.string(),
+          custodianEmail: z
+            .string()
+            .transform((email) => email.toLowerCase())
+            .refine(validEmail, () => ({
+              message: "Custodian email is invalid",
+            })),
         }),
         {
           additionalData: { userId, assetId },
         }
       );
 
-      /** Once the asset is updated, we create the note */
+      //** Once the asset is updated, we create the note */
       await createNote({
         content: `**${user.firstName?.trim()} ${
           user.lastName
@@ -133,12 +150,21 @@ export const action = async ({
         userId: asset.userId,
         assetId: asset.id,
       });
-
       sendNotification({
         title: `‘${asset.title}’ is no longer in custody of ‘${custodianName}’`,
         message: "This asset is available again.",
         icon: { name: "success", variant: "success" },
         senderId: userId,
+      });
+
+      void sendEmail({
+        to: custodianEmail,
+        subject: `Your custody over ${asset.title} has been revoked`,
+        text: assetCustodyRevokedEmailText({
+          assetName: asset.title,
+          assignerName: user.firstName + " " + user.lastName,
+          assetId: asset.id,
+        }),
       });
     }
 
@@ -177,6 +203,11 @@ export default function Custody() {
               type="hidden"
               name="custodianName"
               value={custody?.custodian.name}
+            />
+            <input
+              type="hidden"
+              name="custodianEmail"
+              value={custody?.custodian.user?.email}
             />
             <Button
               to=".."

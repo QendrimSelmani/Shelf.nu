@@ -24,9 +24,14 @@ import {
   PrintIcon,
   SettingsIcon,
   SendIcon,
+  StarIcon,
+  DeactivateIcon,
+  PdfIcon,
   LogoutIcon,
   HelpIcon,
   Profile,
+  CopyIcon,
+  SignIcon,
   UserIcon,
   GpsMarkerIcon,
   DuplicateIcon,
@@ -65,10 +70,16 @@ export type IconType =
   | "download"
   | "print"
   | "settings"
+  | "send"
+  | "star"
+  | "deactivate"
+  | "pdf"
   | "logout"
   | "help"
   | "profile"
   | "send"
+  | "copy"
+  | "sign"
   | "user"
   | "calendar"
   | "graph"
@@ -112,6 +123,11 @@ export const iconsMap: IconsMap = {
   profile: <Profile />,
   logout: <LogoutIcon />,
   send: <SendIcon />,
+  star: <StarIcon />,
+  deactivate: <DeactivateIcon />,
+  pdf: <PdfIcon />,
+  copy: <CopyIcon />,
+  sign: <SignIcon />,
   user: <UserIcon />,
   calendar: <CalendarIcon className="size-5" />,
   bookings: <BookingsIcon />,

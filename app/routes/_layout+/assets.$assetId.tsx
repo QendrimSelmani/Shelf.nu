@@ -5,7 +5,7 @@ import type {
   MetaFunction,
 } from "@remix-run/node";
 import { redirect, json } from "@remix-run/node";
-import { useFetcher, useLoaderData } from "@remix-run/react";
+import { Link, useFetcher, useLoaderData } from "@remix-run/react";
 
 import mapCss from "maplibre-gl/dist/maplibre-gl.css?url";
 import { useZorm } from "react-zorm";
@@ -26,6 +26,7 @@ import { ScanDetails } from "~/components/location/scan-details";
 import { Badge } from "~/components/shared/badge";
 import { Button } from "~/components/shared/button";
 import { Card } from "~/components/shared/card";
+import { CustomTooltip } from "~/components/shared/custom-tooltip";
 import { Tag } from "~/components/shared/tag";
 import TextualDivider from "~/components/shared/textual-divider";
 import { usePosition } from "~/hooks/use-position";
@@ -270,11 +271,40 @@ export default function AssetDetailsPage() {
     <>
       <Header
         subHeading={
-          <div className="flex gap-2">
-            <AssetStatusBadge
-              status={asset.status}
-              availableToBook={asset.availableToBook}
-            />
+          <div className=" mt-3 flex gap-2">
+            <div className="flex items-center gap-x-1">
+              <AssetStatusBadge
+                status={asset.status}
+                availableToBook={asset.availableToBook}
+              />
+              {asset.custody?.template?.signatureRequired &&
+                !asset.custody.templateSigned && (
+                  <CustomTooltip
+                    content={
+                      <div className="max-w-[260px] text-left sm:max-w-[320px]">
+                        <h6 className="mb-1 text-xs font-semibold text-gray-700">
+                          Awaiting signature to complete custody assignment
+                        </h6>
+                        <div className="whitespace-normal text-xs font-medium text-gray-500">
+                          Asset status will change after signing. To cancel
+                          custody assignment, go to{" "}
+                          <span className="font-semibold text-gray-600">
+                            {"Actions > Check in"}
+                          </span>
+                        </div>
+                      </div>
+                    }
+                  >
+                    <Link
+                      className="rounded-full bg-gray-200 p-1"
+                      to={`share-template`}
+                    >
+                      <Icon icon="sign" />
+                    </Link>
+                  </CustomTooltip>
+                )}
+            </div>
+
             {location ? (
               <span className="inline-flex justify-center rounded-2xl bg-gray-100 px-[8px] py-[2px] text-center text-[12px] font-medium text-gray-700">
                 {location.name}

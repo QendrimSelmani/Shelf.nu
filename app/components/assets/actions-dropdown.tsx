@@ -123,7 +123,7 @@ const ConditionalActionsDropdown = () => {
                   to="check-out"
                   role="link"
                   variant="link"
-                  className="justify-start px-4 py-3  text-gray-700 hover:text-gray-700"
+                  className="justify-start px-4 py-3 text-gray-700 hover:text-gray-700"
                   width="full"
                   onClick={() => setOpen(false)}
                 >

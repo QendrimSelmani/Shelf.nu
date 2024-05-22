@@ -82,6 +82,8 @@ export async function getAsset({
           select: {
             createdAt: true,
             custodian: true,
+            template: true,
+            templateSigned: true,
           },
         },
         organization: {
@@ -316,6 +318,12 @@ async function getAssetsFromView(params: {
               },
               custody: {
                 select: {
+                  templateSigned: true,
+                  template: {
+                    select: {
+                      signatureRequired: true,
+                    },
+                  },
                   custodian: {
                     select: {
                       name: true,
@@ -327,34 +335,34 @@ async function getAssetsFromView(params: {
                     },
                   },
                 },
+                ...(bookingTo && bookingFrom
+                  ? {
+                      bookings: {
+                        where: {
+                          status: { in: unavailableBookingStatuses },
+                          OR: [
+                            {
+                              from: { lte: bookingTo },
+                              to: { gte: bookingFrom },
+                            },
+                            {
+                              from: { gte: bookingFrom },
+                              to: { lte: bookingTo },
+                            },
+                          ],
+                        },
+                        take: 1, //just to show in UI if its booked, so take only 1, also at a given slot only 1 booking can be created for an asset
+                        select: {
+                          from: true,
+                          to: true,
+                          status: true,
+                          id: true,
+                          name: true,
+                        },
+                      },
+                    }
+                  : {}),
               },
-              ...(bookingTo && bookingFrom
-                ? {
-                    bookings: {
-                      where: {
-                        status: { in: unavailableBookingStatuses },
-                        OR: [
-                          {
-                            from: { lte: bookingTo },
-                            to: { gte: bookingFrom },
-                          },
-                          {
-                            from: { gte: bookingFrom },
-                            to: { lte: bookingTo },
-                          },
-                        ],
-                      },
-                      take: 1, //just to show in UI if its booked, so take only 1, also at a given slot only 1 booking can be created for an asset
-                      select: {
-                        from: true,
-                        to: true,
-                        status: true,
-                        id: true,
-                        name: true,
-                      },
-                    },
-                  }
-                : {}),
             },
           },
         },
@@ -543,6 +551,12 @@ async function getAssets(params: {
           },
           custody: {
             select: {
+              templateSigned: true,
+              template: {
+                select: {
+                  signatureRequired: true,
+                },
+              },
               custodian: {
                 select: {
                   name: true,

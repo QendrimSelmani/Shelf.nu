@@ -1,20 +1,25 @@
-import { AssetStatus, BookingStatus } from "@prisma/client";
+import { useMemo, useState } from "react";
+import { AssetStatus, BookingStatus, TemplateType } from "@prisma/client";
+
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json, redirect } from "@remix-run/node";
-import {
-  Form,
-  Link,
-  useActionData,
-  useLoaderData,
-  useNavigation,
-} from "@remix-run/react";
+import { Form, Link, useLoaderData, useNavigation } from "@remix-run/react";
 import { z } from "zod";
+
+import TemplateSelect from "~/components/custody/template-select";
 import DynamicSelect from "~/components/dynamic-select/dynamic-select";
+import { Switch } from "~/components/forms/switch";
 import { UserIcon } from "~/components/icons/library";
 import { Button } from "~/components/shared/button";
+import { CustomTooltip } from "~/components/shared/custom-tooltip";
 import { WarningBox } from "~/components/shared/warning-box";
+
 import { db } from "~/database/db.server";
 import { createNote } from "~/modules/asset/service.server";
+import {
+  assetCustodyAssignedEmailText,
+  assetCustodyAssignedWithTemplateEmailText,
+} from "~/modules/invite/helpers";
 import { getUserByID } from "~/modules/user/service.server";
 import styles from "~/styles/layout/custom-modal.css?url";
 import { sendNotification } from "~/utils/emitter/send-notification.server";
@@ -27,6 +32,7 @@ import {
   getParams,
   parseData,
 } from "~/utils/http.server";
+import { sendEmail } from "~/utils/mail.server";
 import {
   PermissionAction,
   PermissionEntity,
@@ -113,6 +119,24 @@ export async function loader({ context, request, params }: LoaderFunctionArgs) {
         });
       });
 
+    // We need to fetch all the templates that belong to the user's current organization
+    // and the template type is CUSTODY
+    const templates = await db.template.findMany({
+      where: {
+        organizationId,
+        type: TemplateType.CUSTODY,
+      },
+    });
+
+    if (templates.length === 0) {
+      throw new ShelfError({
+        cause: null,
+        message: "Something went wrong while deleting the note",
+        additionalData: { organizationId },
+        label: "Assets",
+      });
+    }
+
     const totalTeamMembers = await db.teamMember.count({
       where: {
         deletedAt: null,
@@ -125,6 +149,7 @@ export async function loader({ context, request, params }: LoaderFunctionArgs) {
         showModal: true,
         teamMembers,
         asset,
+        templates,
         totalTeamMembers,
       })
     );
@@ -149,21 +174,39 @@ export async function action({ context, request, params }: ActionFunctionArgs) {
       action: PermissionAction.update,
     });
 
-    const { custodian } = parseData(
-      await request.formData(),
+    const BaseSchema = z.object({
+      custodian: stringToJSONSchema.pipe(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          email: z.string(),
+          userId: z.string(),
+        })
+      ),
+    });
+
+    const EnhancedSchema = z.discriminatedUnion("addTemplateEnabled", [
       z.object({
-        custodian: stringToJSONSchema.pipe(
+        addTemplateEnabled: z.literal(false),
+        ...BaseSchema.shape,
+      }),
+      z.object({
+        addTemplateEnabled: z.literal(true),
+        ...BaseSchema.shape,
+        template: stringToJSONSchema.pipe(
           z.object({
             id: z.string(),
-            name: z.string(),
           })
         ),
       }),
-      {
-        additionalData: { userId, assetId },
-        message: "Please select a custodian",
-      }
-    );
+    ]);
+
+    const parsedData = parseData(await request.formData(), EnhancedSchema, {
+      additionalData: { userId, assetId },
+      message: "Please select a custodian",
+    });
+
+    const { custodian, addTemplateEnabled } = parsedData;
 
     const user = await getUserByID(userId);
 
@@ -171,58 +214,180 @@ export async function action({ context, request, params }: ActionFunctionArgs) {
      * ID is used to connect the asset to the custodian
      * Name is used to create the note
      */
-    const { id: custodianId, name: custodianName } = custodian;
+    const {
+      id: custodianId,
+      name: custodianName,
+      email: custodianEmail,
+      userId: custodianUserId,
+    } = custodian;
 
-    /** In order to do it with a single query
-     * 1. We update the asset status
-     * 2. We create a new custody record for that specific asset
-     * 3. We link it to the custodian
-     */
-    const asset = await db.asset
-      .update({
-        where: { id: assetId },
-        data: {
-          status: AssetStatus.IN_CUSTODY,
-          custody: {
-            create: {
-              custodian: { connect: { id: custodianId } },
-            },
-          },
-        },
-        include: {
-          user: {
-            select: {
-              firstName: true,
-              lastName: true,
-            },
-          },
-        },
-      })
-      .catch((cause) => {
-        throw new ShelfError({
-          cause,
-          message:
-            "Something went wrong while updating asset. Please try again or contact support.",
-          additionalData: { userId, assetId, custodianId },
-          label: "Assets",
+    let templateId = null,
+      templateObj = null;
+
+    if (addTemplateEnabled) {
+      const template = parsedData.template;
+      templateId = template.id;
+
+      templateObj = await db.template
+        .findUnique({
+          where: { id: templateId as string },
+        })
+        .catch((cause) => {
+          throw new ShelfError({
+            cause,
+            message:
+              "Something went wrong while fetching template. Please try again or contact support.",
+            additionalData: { userId, assetId, custodianId },
+            label: "Assets",
+          });
         });
+
+      if (!templateObj)
+        throw new ShelfError({
+          message:
+            "Template not found. Please refresh and if the issue persists contact support.",
+          label: "Assets",
+          cause: null,
+        });
+    }
+    let asset = null;
+
+    if (addTemplateEnabled) {
+      /**
+       * In this case, we do the following:
+       * 1. We check if the signature is required by the template
+       * 2. If yes, the the asset status is "AVAILABLE", else "IN_CUSTODY"
+       * 3. We create a new custody record for that specific asset and the template
+       * 4. We link it to the custodian
+       */
+      asset = await db.asset
+        .update({
+          where: { id: assetId },
+          data: {
+            status: templateObj!.signatureRequired
+              ? AssetStatus.AVAILABLE
+              : AssetStatus.IN_CUSTODY,
+            custody: {
+              create: {
+                custodian: { connect: { id: custodianId as string } },
+                template: { connect: { id: templateId as string } },
+                associatedTemplateVersion: templateObj!.lastRevision,
+              },
+            },
+          },
+          include: {
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        })
+        .catch((cause) => {
+          throw new ShelfError({
+            cause,
+            message:
+              "Something went wrong while updating asset. Please try again or contact support.",
+            additionalData: { userId, assetId, custodianId, templateId },
+            label: "Assets",
+          });
+        });
+    } else {
+      /** In order to do it with a single query
+       * 1. We update the asset status
+       * 2. We create a new custody record for that specific asset
+       * 3. We link it to the custodian
+       */
+      asset = await db.asset
+        .update({
+          where: { id: assetId },
+          data: {
+            status: AssetStatus.IN_CUSTODY,
+            custody: {
+              create: {
+                custodian: { connect: { id: custodianId } },
+              },
+            },
+          },
+          include: {
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        })
+        .catch((cause) => {
+          throw new ShelfError({
+            cause,
+            message:
+              "Something went wrong while updating asset. Please try again or contact support.",
+            additionalData: { userId, assetId, custodianId, templateId },
+            label: "Assets",
+          });
+        });
+    }
+
+    // If the template was specified, and signature was required
+    if (addTemplateEnabled && templateObj!.signatureRequired) {
+      /** We create the note */
+      await createNote({
+        content: `**${user.firstName?.trim()} ${user.lastName?.trim()}** has given **${custodianName?.trim()}** custody over **${asset.title?.trim()}**. **${custodianName?.trim()}** needs to sign the **${templateObj!.name?.trim()}** template before receiving custody.`,
+        type: "UPDATE",
+        userId: userId,
+        assetId: asset.id,
       });
 
-    /** Once the asset is updated, we create the note */
-    await createNote({
-      content: `**${user.firstName?.trim()} ${user.lastName?.trim()}** has given **${custodianName.trim()}** custody over **${asset.title.trim()}**`,
-      type: "UPDATE",
-      userId: userId,
-      assetId: asset.id,
-    });
+      sendNotification({
+        title: `‘${asset.title}’ would go in custody of ${custodianName}`,
+        message:
+          "This asset will stay available until the custodian signs the PDF template. After that, the asset will be unavailable until custody is manually released.",
+        icon: { name: "success", variant: "success" },
+        senderId: userId,
+      });
 
-    sendNotification({
-      title: `‘${asset.title}’ is now in custody of ${custodianName}`,
-      message:
-        "Remember, this asset will be unavailable until custody is manually released.",
-      icon: { name: "success", variant: "success" },
-      senderId: userId,
-    });
+      /** @TODO I have set this to void but we have to consider if we want to catch this */
+      void sendEmail({
+        to: custodianEmail,
+        subject: `You have been assigned custody over ${asset.title}.`,
+        text: assetCustodyAssignedWithTemplateEmailText({
+          assetName: asset.title,
+          assignerName: user.firstName + " " + user.lastName,
+          assetId: asset.id,
+          templateId: templateObj!.id,
+          assigneeId: custodianUserId,
+        }),
+      });
+    } else {
+      // If the template was not specified
+      await createNote({
+        content: `**${user.firstName} ${user.lastName}** has given **${custodianName}** custody over **${asset.title}**`,
+        type: "UPDATE",
+        userId: userId,
+        assetId: asset.id,
+      });
+
+      sendNotification({
+        title: `‘${asset.title}’ is now in custody of ${custodianName}`,
+        message:
+          "Remember, this asset will be unavailable until custody is manually released.",
+        icon: { name: "success", variant: "success" },
+        senderId: userId,
+      });
+
+      /** @TODO I have set this to void but we have to consider if we want to catch this */
+      void sendEmail({
+        to: custodianEmail,
+        subject: `You have been assigned custody over ${asset.title}`,
+        text: assetCustodyAssignedEmailText({
+          assetName: asset.title,
+          assignerName: user.firstName + " " + user.lastName,
+          assetId: asset.id,
+        }),
+      });
+    }
 
     return redirect(`/assets/${assetId}`);
   } catch (cause) {
@@ -238,9 +403,25 @@ export function links() {
 export default function Custody() {
   const { asset } = useLoaderData<typeof loader>();
   const hasBookings = (asset?.bookings?.length ?? 0) > 0 || false;
-  const actionData = useActionData<typeof action>();
   const transition = useNavigation();
   const disabled = isFormProcessing(transition.state);
+  const [selectedCustodyUser, setSelectedCustodyUser] = useState<{
+    id: string;
+    userId: string | null;
+    name: string;
+  } | null>(null);
+
+  const selectedCustodianHasUser = useMemo(
+    () => selectedCustodyUser?.userId !== null,
+    [selectedCustodyUser]
+  );
+
+  const shouldDisableSwitch = useMemo(
+    () => selectedCustodyUser === null || !selectedCustodianHasUser,
+    [selectedCustodyUser, selectedCustodianHasUser]
+  );
+
+  const [addTemplateEnabled, setAddTemplateEnabled] = useState(false);
 
   return (
     <>
@@ -256,7 +437,8 @@ export default function Custody() {
               to one of your team members.
             </p>
           </div>
-          <div className=" relative z-50 mb-8">
+
+          <div className=" relative z-50 mb-6">
             <DynamicSelect
               disabled={disabled}
               model={{
@@ -269,19 +451,75 @@ export default function Custody() {
               initialDataKey="teamMembers"
               countKey="totalTeamMembers"
               placeholder="Select a team member"
-              allowClear
+              allowClear={false}
               closeOnSelect
               transformItem={(item) => ({
                 ...item,
-                id: JSON.stringify({ id: item.id, name: item.name }),
+                id: JSON.stringify({
+                  id: item.id,
+                  name: item.name,
+                  userId: item?.userId,
+                }),
               })}
+              onChange={(value) => {
+                const id = JSON.parse(value).id;
+                /**
+                 * When the value passed is the same as the current value,
+                 * that means the user is clicking the already selected item to disable it.
+                 * So we clear the state in that case*/
+                if (id === selectedCustodyUser?.id) {
+                  setSelectedCustodyUser(null);
+                  setAddTemplateEnabled(false);
+                } else {
+                  setSelectedCustodyUser(JSON.parse(value));
+                }
+              }}
             />
           </div>
-          {actionData?.error ? (
-            <div className="-mt-8 mb-8 text-sm text-error-500">
-              {actionData.error.message}
+          {shouldDisableSwitch ? (
+            <div className="flex gap-x-2">
+              <CustomTooltip
+                content={
+                  <TooltipContent
+                    title={
+                      selectedCustodianHasUser
+                        ? "Please select a custodian"
+                        : "Custodian needs to be a registered user"
+                    }
+                    message={
+                      selectedCustodianHasUser
+                        ? "You need to select a custodian before you can add a PDF template."
+                        : "Signing PDFs is not allowed for NRM and non-users."
+                    }
+                  />
+                }
+              >
+                <Switch required={false} disabled={true} />
+              </CustomTooltip>
+              <PdfSwitchLabel />
             </div>
-          ) : null}
+          ) : (
+            <div className="mb-5 flex gap-x-2">
+              <Switch
+                name="addTemplateEnabled"
+                onClick={() => setAddTemplateEnabled((prev) => !prev)}
+                defaultChecked={addTemplateEnabled}
+                required={false}
+                disabled={disabled}
+              />
+              <PdfSwitchLabel />
+            </div>
+          )}
+
+          {addTemplateEnabled && (
+            <div className="mt-5">
+              <TemplateSelect />
+              {/* @TODO this still needs to be updated with the new approach. This check wont work as this type is not passed to action data */}
+              {/* {actionData?.type && actionData?.type === "TEMPLATE" && (
+                <div className="text-sm text-error-500">{actionData.error}</div>
+              )} */}
+            </div>
+          )}
 
           {hasBookings ? (
             <WarningBox className="-mt-4 mb-8">
@@ -300,7 +538,7 @@ export default function Custody() {
             </WarningBox>
           ) : null}
 
-          <div className="flex gap-3">
+          <div className="mt-8 flex gap-3">
             <Button
               to=".."
               variant="secondary"
@@ -313,7 +551,11 @@ export default function Custody() {
               variant="primary"
               width="full"
               type="submit"
-              disabled={disabled}
+              disabled={
+                disabled ||
+                selectedCustodyUser === null ||
+                selectedCustodyUser?.userId === null
+              }
             >
               Confirm
             </Button>
@@ -323,3 +565,32 @@ export default function Custody() {
     </>
   );
 }
+
+function TooltipContent({
+  title,
+  message,
+}: {
+  title: string;
+  message: string;
+}) {
+  return (
+    <div>
+      <div>
+        <div className="text-md mb-2 font-semibold text-gray-700">{title}</div>
+        <div className="text-sm text-gray-500">{message}</div>
+      </div>
+    </div>
+  );
+}
+
+const PdfSwitchLabel = () => (
+  <div className="flex flex-col gap-y-1">
+    <div className="text-md font-semibold text-gray-600">Add PDF Template</div>
+    <p className="text-sm text-gray-500">
+      Custodian needs to read (and sign) a document before receiving custody.{" "}
+      <Link className="text-gray-700 underline" to="#">
+        Learn more
+      </Link>
+    </p>
+  </div>
+);

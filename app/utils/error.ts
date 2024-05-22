@@ -81,10 +81,12 @@ export type FailureReason = {
     | "Scanner"
     | "Kit"
     // Other kinds of errors
+    | "Storage"
     | "Request validation"
     | "DB constrain violation"
     | "Dev error" // Error that should never happen in production because it's a developer mistake
-    | "Environment"; // Related to the environment setup
+    | "Environment" // Related to the environment setup
+    | "Template";
   /**
    * The message intended for the user.
    */
