@@ -19,8 +19,12 @@ import {
 } from "@remix-run/react";
 import { useAtom, useAtomValue } from "jotai";
 import { z } from "zod";
-import { bookingsSelectedAssetsAtom } from "~/atoms/selected-assets-atoms";
+import {
+  bookingsSelectedAssetsAtom,
+  bookingsSelectedKitsAtom,
+} from "~/atoms/selected-assets-atoms";
 import { AssetImage } from "~/components/assets/asset-image";
+import GroupedByKitAssets from "~/components/assets/grouped-by-kit-assets";
 import { AvailabilityLabel } from "~/components/booking/availability-label";
 import { AvailabilitySelect } from "~/components/booking/availability-select";
 import styles from "~/components/booking/styles.css?url";
@@ -31,8 +35,16 @@ import Header from "~/components/layout/header";
 import { List } from "~/components/list";
 import { Filters } from "~/components/list/filters";
 import { Button } from "~/components/shared/button";
+import { GrayBadge } from "~/components/shared/gray-badge";
 import { Image } from "~/components/shared/image";
 
+import { Spinner } from "~/components/shared/spinner";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "~/components/shared/tabs";
 import { Td } from "~/components/table";
 
 import {
@@ -48,7 +60,14 @@ import { getUserByID } from "~/modules/user/service.server";
 import { getClientHint } from "~/utils/client-hints";
 import { makeShelfError } from "~/utils/error";
 import { isFormProcessing } from "~/utils/form";
-import { data, error, getParams, parseData } from "~/utils/http.server";
+import {
+  data,
+  error,
+  getCurrentSearchParams,
+  getParams,
+  parseData,
+} from "~/utils/http.server";
+import { getParamsValues } from "~/utils/list";
 import {
   PermissionAction,
   PermissionEntity,
@@ -77,6 +96,9 @@ export async function loader({ context, request, params }: LoaderFunctionArgs) {
       action: PermissionAction.update,
     });
 
+    const searchParams = getCurrentSearchParams(request);
+    const paramsValues = getParamsValues(searchParams);
+
     const {
       search,
       totalAssets,
@@ -93,6 +115,8 @@ export async function loader({ context, request, params }: LoaderFunctionArgs) {
     } = await getPaginatedAndFilterableAssets({
       request,
       organizationId,
+      bookingTab: paramsValues.tab ? paramsValues.tab : "assets",
+      currentBookingId: id,
     });
 
     const modelName = {
@@ -208,10 +232,12 @@ export async function action({ context, request, params }: ActionFunctionArgs) {
 }
 
 export default function AddAssetsToNewBooking() {
-  const { booking, header } = useLoaderData<typeof loader>();
-  const [_searchParams] = useSearchParams();
+  const { booking, header, items } = useLoaderData<typeof loader>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigation = useNavigation();
   const isSearching = isFormProcessing(navigation.state);
+
+  const selectedTab = searchParams.get("tab") ?? "assets";
 
   const bookingAssetsIds = useMemo(
     () => booking?.assets.map((a) => a.id) || [],
@@ -221,10 +247,23 @@ export default function AddAssetsToNewBooking() {
   const [selectedAssets, setSelectedAssets] = useAtom(
     bookingsSelectedAssetsAtom
   );
+
+  const [selectedKits, setSelectedKits] = useAtom(bookingsSelectedKitsAtom);
+
   const removedAssetIds = useMemo(
     () => bookingAssetsIds.filter((prevId) => !selectedAssets.includes(prevId)),
     [bookingAssetsIds, selectedAssets]
   );
+
+  const selectedItems = items.filter((item) =>
+    selectedAssets.includes(item.id)
+  );
+
+  const totalAssetsSelected =
+    selectedTab === "assets"
+      ? selectedItems.filter((i) => !i.kitId).length
+      : booking.assets.filter((a) => !a.kitId).length;
+  const totalKitsSelected = selectedKits.length;
 
   /**
    * Initially here we were using useHydrateAtoms, but we found that it was causing the selected assets to stay the same as it hydrates only once per store and we dont have different stores per booking
@@ -234,24 +273,61 @@ export default function AddAssetsToNewBooking() {
    */
   useEffect(() => {
     setSelectedAssets(bookingAssetsIds);
+
+    // selected kits in booking
+    const kitIds = booking.assets
+      .filter((a) => !!a.kitId)
+      .map((a) => a.kitId) as unknown as string[];
+    const uniqKitIds = new Set(kitIds);
+
+    setSelectedKits([...uniqKitIds]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booking.id]);
 
   return (
-    <div className="flex h-full max-h-full flex-col ">
+    <Tabs
+      className="-mx-6 flex h-full max-h-full flex-col"
+      value={selectedTab}
+      onValueChange={(value) => {
+        setSearchParams((prev) => {
+          prev.set("tab", value);
+          return prev;
+        });
+      }}
+    >
       <Header
         {...header}
         hideBreadcrumbs={true}
-        classNames="text-left  -mx-6 [&>div]:px-6 -mt-6"
-      />
-      <Filters
-        slots={{
-          "right-of-search": <AvailabilitySelect />,
-        }}
-        className="-mx-6 justify-between !border-t-0 border-b px-6 md:flex"
+        classNames="text-left [&>div]:px-6 -mt-6 mx-0"
       />
 
-      <div className="-mx-6 flex  justify-around gap-2 border-b p-3 lg:gap-4">
+      <div className="border-b px-6 py-2">
+        <TabsList className="w-full">
+          <TabsTrigger className="flex-1 gap-x-2" value="assets">
+            Assets{" "}
+            {totalAssetsSelected > 0 ? (
+              <GrayBadge className="size-[20px] border border-primary-200 bg-primary-50 text-[10px] leading-[10px] text-primary-700">
+                {totalAssetsSelected}
+              </GrayBadge>
+            ) : null}
+          </TabsTrigger>
+          <TabsTrigger className="flex-1 gap-x-2" value="kits">
+            Kits
+            {totalKitsSelected ? (
+              <GrayBadge className="size-[20px] border border-primary-200 bg-primary-50 text-[10px] leading-[10px] text-primary-700">
+                {totalKitsSelected}
+              </GrayBadge>
+            ) : null}
+          </TabsTrigger>
+        </TabsList>
+      </div>
+
+      <Filters
+        slots={{ "right-of-search": <AvailabilitySelect /> }}
+        className="justify-between !border-t-0 border-b px-6 md:flex"
+      />
+
+      <div className="flex justify-around gap-2 border-b p-3 lg:gap-4">
         <DynamicDropdown
           trigger={
             <div className="flex h-6 cursor-pointer items-center gap-2">
@@ -302,29 +378,46 @@ export default function AddAssetsToNewBooking() {
       </div>
 
       {/* Body of the modal*/}
-      <div className="-mx-6 flex-1 overflow-y-auto px-5 md:px-0">
-        <List
-          ItemComponent={RowComponent}
-          /** Clicking on the row will add the current asset to the atom of selected assets */
-          navigate={(assetId) => {
-            setSelectedAssets((selectedAssets) =>
-              selectedAssets.includes(assetId)
-                ? selectedAssets.filter((id) => id !== assetId)
-                : [...selectedAssets, assetId]
-            );
-          }}
-          customEmptyStateContent={{
-            title: "You haven't added any assets yet.",
-            text: "What are you waiting for? Create your first asset now!",
-            newButtonRoute: "/assets/new",
-            newButtonContent: "New asset",
-          }}
-          className="-mx-5 flex h-full flex-col justify-between border-0"
-        />
-      </div>
+      <TabsContent value="assets" asChild>
+        {isSearching && !navigation.formAction ? (
+          <div className="flex h-[400px] flex-1 flex-col items-center justify-center">
+            <Spinner />
+            <p>Fetching assets...</p>
+          </div>
+        ) : (
+          <List
+            className="mt-0 h-full border-0"
+            ItemComponent={RowComponent}
+            /** Clicking on the row will add the current asset to the atom of selected assets */
+            navigate={(assetId, asset) => {
+              /** Only allow user to select if the asset is available */
+              if (!asset.availableToBook || !!asset.kitId) {
+                return;
+              }
+
+              setSelectedAssets((selectedAssets) =>
+                selectedAssets.includes(assetId)
+                  ? selectedAssets.filter((id) => id !== assetId)
+                  : [...selectedAssets, assetId]
+              );
+            }}
+            emptyStateClassName="py-10"
+            customEmptyStateContent={{
+              title: "You haven't added any assets yet.",
+              text: "What are you waiting for? Create your first asset now!",
+              newButtonRoute: "/assets/new",
+              newButtonContent: "New asset",
+            }}
+          />
+        )}
+      </TabsContent>
+
+      <TabsContent value="kits" asChild>
+        <GroupedByKitAssets className="mt-0 h-full border-0" />
+      </TabsContent>
 
       {/* Footer of the modal */}
-      <footer className="item-center -mx-6 flex justify-between border-t px-6 pt-3">
+      <footer className="item-center flex justify-between border-t px-6 pt-3">
         <div className="flex items-center">
           {selectedAssets.length} assets selected
         </div>
@@ -363,7 +456,7 @@ export default function AddAssetsToNewBooking() {
           </Form>
         </div>
       </footer>
-    </div>
+    </Tabs>
   );
 }
 
@@ -371,11 +464,16 @@ export type AssetWithBooking = Asset & {
   bookings: Booking[];
   custody: Custody | null;
   category: Category;
+  kitId?: string | null;
 };
 
 const RowComponent = ({ item }: { item: AssetWithBooking }) => {
   const selectedAssets = useAtomValue(bookingsSelectedAssetsAtom);
   const checked = selectedAssets.some((id) => id === item.id);
+
+  const isPartOfKit = !!item.kitId;
+  const isAddedThroughKit = isPartOfKit && checked;
+
   return (
     <>
       <Td className="w-full p-0 md:p-0">
@@ -403,13 +501,25 @@ const RowComponent = ({ item }: { item: AssetWithBooking }) => {
 
       <Td className="text-right">
         <AvailabilityLabel
+          isAddedThroughKit={isAddedThroughKit}
+          showKitStatus
           asset={item}
           isCheckedOut={item.status === "CHECKED_OUT"}
         />
       </Td>
 
       <Td>
-        <FakeCheckbox className="text-white" checked={checked} />
+        <FakeCheckbox
+          className={tw(
+            "text-white",
+            isPartOfKit ? "text-gray-100" : "",
+            checked ? "text-primary" : "",
+            isAddedThroughKit ? "text-gray-300" : ""
+          )}
+          fillColor={isPartOfKit ? "#F2F4F7" : undefined}
+          checked={checked}
+          aria-disabled={isPartOfKit}
+        />
       </Td>
     </>
   );

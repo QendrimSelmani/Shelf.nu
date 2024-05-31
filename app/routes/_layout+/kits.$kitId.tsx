@@ -1,4 +1,4 @@
-import { AssetStatus, type Prisma } from "@prisma/client";
+import { AssetStatus, BookingStatus, type Prisma } from "@prisma/client";
 import { json, redirect } from "@remix-run/node";
 import type {
   MetaFunction,
@@ -23,6 +23,7 @@ import { Filters } from "~/components/list/filters";
 import { Badge } from "~/components/shared/badge";
 import { Button } from "~/components/shared/button";
 import { Card } from "~/components/shared/card";
+import { ControlledActionButton } from "~/components/shared/controlled-action-button";
 import { GrayBadge } from "~/components/shared/gray-badge";
 import { Image } from "~/components/shared/image";
 import TextualDivider from "~/components/shared/textual-divider";
@@ -76,7 +77,11 @@ export async function loader({ context, request, params }: LoaderFunctionArgs) {
         organizationId,
         extraInclude: {
           assets: {
-            select: { status: true, custody: { select: { id: true } } },
+            select: {
+              status: true,
+              custody: { select: { id: true } },
+              bookings: { select: { status: true } },
+            },
           },
           custody: { select: { custodian: true } },
         },
@@ -244,14 +249,47 @@ export async function action({ context, request, params }: ActionFunctionArgs) {
 
 export default function KitDetails() {
   const { kit } = useLoaderData<typeof loader>();
+  const _kit = kit as unknown as Prisma.KitGetPayload<{
+    include: {
+      assets: { select: { bookings: { select: { status: true } } } };
+    };
+  }>;
 
   const isSelfService = useUserIsSelfService();
-  const kitIsAvailable = kit.status === "AVAILABLE";
+
+  /**
+   * User can manage assets if
+   * 1. Kit has AVAILABLE status
+   * 2. Kit has a booking whose status is one of the following
+   *    DRAFT
+   *    ARCHIVED
+   *    CANCELLED
+   *    COMPLETE
+   * 3. User is not self service
+   */
+  const allowedBookingStatus: BookingStatus[] = [
+    BookingStatus.DRAFT,
+    BookingStatus.ARCHIVED,
+    BookingStatus.CANCELLED,
+    BookingStatus.COMPLETE,
+  ];
+  const kitIsAvailable = _kit.assets.length
+    ? _kit.assets[0]?.bookings.every((b) =>
+        allowedBookingStatus.includes(b.status)
+      )
+    : kit.status === "AVAILABLE";
+
+  const canManageAssets = kitIsAvailable && !isSelfService;
 
   return (
     <>
       <Header
-        subHeading={<KitStatusBadge status={kit.status} availableToBook />}
+        subHeading={
+          <KitStatusBadge
+            status={kit.status}
+            availableToBook={kit.status === "AVAILABLE"}
+          />
+        }
       >
         {!isSelfService ? <ActionsDropdown /> : null}
       </Header>
@@ -312,15 +350,23 @@ export default function KitDetails() {
         <div className="w-full lg:ml-6">
           <TextualDivider text="Assets" className="mb-8 lg:hidden" />
           <div className="mb-3 flex gap-4 lg:hidden">
-            <Button
-              as="button"
-              to="add-assets"
-              variant="primary"
-              icon="plus"
-              width="full"
-            >
-              Manage assets
-            </Button>
+            {!isSelfService ? (
+              <ControlledActionButton
+                canUseFeature={canManageAssets}
+                buttonContent={{
+                  title: "Manage assets",
+                  message:
+                    "You are not allowed to manage assets for this kit because its part of an ongoing booking.",
+                }}
+                buttonProps={{
+                  as: "button",
+                  to: "manage-assets",
+                  variant: "primary",
+                  icon: "plus",
+                  width: "full",
+                }}
+              />
+            ) : null}
             <div className="w-full">
               <ActionsDropdown fullWidth />
             </div>
@@ -328,21 +374,28 @@ export default function KitDetails() {
 
           <div className="flex flex-col md:gap-2">
             <Filters className="responsive-filters mb-2 lg:mb-0">
-              {!isSelfService && (
+              {!isSelfService ? (
                 <div className="flex items-center justify-normal gap-6 xl:justify-end">
                   <div className="hidden lg:block">
-                    <Button
-                      as="button"
-                      to="manage-assets"
-                      variant="primary"
-                      icon="plus"
-                      className="whitespace-nowrap"
-                    >
-                      Manage assets
-                    </Button>
+                    <ControlledActionButton
+                      canUseFeature={canManageAssets}
+                      buttonContent={{
+                        title: "Manage assets",
+                        message:
+                          "You are not allowed to manage assets for this kit because its part of an ongoing booking.",
+                      }}
+                      buttonProps={{
+                        as: "button",
+                        to: "manage-assets",
+                        variant: "primary",
+                        icon: "plus",
+                        width: "full",
+                        className: "whitespace-nowrap",
+                      }}
+                    />
                   </div>
                 </div>
-              )}
+              ) : null}
             </Filters>
             <List
               ItemComponent={ListContent}
