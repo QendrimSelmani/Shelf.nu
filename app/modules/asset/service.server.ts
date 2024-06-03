@@ -143,8 +143,6 @@ async function getAssetsFromView(params: {
   unhideAssetsBookigIds?: Booking["id"][];
   locationIds?: Location["id"][] | null;
   teamMemberIds?: TeamMember["id"][] | null;
-  tab?: string | null;
-  currentBookingId?: Booking["id"];
 }) {
   const {
     organizationId,
@@ -160,8 +158,6 @@ async function getAssetsFromView(params: {
     unhideAssetsBookigIds, // works in conjuction with hideUnavailable, to show currentbooking assets
     locationIds,
     teamMemberIds,
-    tab,
-    currentBookingId,
   } = params;
 
   try {
@@ -211,13 +207,6 @@ async function getAssetsFromView(params: {
       BookingStatus.DRAFT,
       BookingStatus.RESERVED,
       BookingStatus.ONGOING,
-    ];
-    const availableBookingStatuses = [
-      BookingStatus.DRAFT,
-      BookingStatus.RESERVED,
-      BookingStatus.ARCHIVED,
-      BookingStatus.CANCELLED,
-      BookingStatus.COMPLETE,
     ];
 
     if (hideUnavailable && where.asset) {
@@ -310,31 +299,9 @@ async function getAssetsFromView(params: {
     }
 
     /**
-     * If user has selected the kits tab,
-     * then we have to filter for assets which belongs to a kit
+     * User should only see the assets without kits for hideUnavailable true
      */
-    if (hideUnavailable === true && tab === "kits" && where.asset) {
-      where.asset.kit = {
-        assets: {
-          every: {
-            status: "AVAILABLE",
-            // Only show assets if their booking has available status
-            bookings: {
-              every: {
-                OR: [
-                  { id: currentBookingId },
-                  {
-                    status: {
-                      in: availableBookingStatuses,
-                    },
-                  },
-                ],
-              },
-            },
-          },
-        },
-      };
-    } else if (hideUnavailable === true && tab === "assets" && where.asset) {
+    if (hideUnavailable === true && where.asset) {
       where.asset.kit = null;
     }
 
@@ -436,8 +403,6 @@ async function getAssets(params: {
   bookingTo?: Booking["to"];
   unhideAssetsBookigIds?: Booking["id"][];
   teamMemberIds?: TeamMember["id"][] | null;
-  tab?: string | null;
-  currentBookingId?: Booking["id"];
 }) {
   const {
     organizationId,
@@ -453,8 +418,6 @@ async function getAssets(params: {
     hideUnavailable,
     unhideAssetsBookigIds, // works in conjuction with hideUnavailable, to show currentbooking assets
     teamMemberIds,
-    tab,
-    currentBookingId,
   } = params;
 
   try {
@@ -498,13 +461,7 @@ async function getAssets(params: {
       BookingStatus.RESERVED,
       BookingStatus.ONGOING,
     ];
-    const availableBookingStatuses = [
-      BookingStatus.DRAFT,
-      BookingStatus.RESERVED,
-      BookingStatus.ARCHIVED,
-      BookingStatus.CANCELLED,
-      BookingStatus.COMPLETE,
-    ];
+
     if (hideUnavailable) {
       //not disabled for booking
       where.availableToBook = true;
@@ -565,26 +522,9 @@ async function getAssets(params: {
     }
 
     /**
-     * If user has selected the kits tab,
-     * then we have to filter for assets which belongs to a kit
+     * User should only see the assets without kits for hideUnavailable true
      */
-    if ((hideUnavailable === true && tab) === "kits") {
-      where.kit = {
-        assets: {
-          every: {
-            status: "AVAILABLE",
-            bookings: {
-              every: {
-                OR: [
-                  { id: currentBookingId },
-                  { status: { in: availableBookingStatuses } },
-                ],
-              },
-            },
-          },
-        },
-      };
-    } else if (hideUnavailable === true && tab === "assets") {
+    if (hideUnavailable === true) {
       where.kit = null;
     }
 
@@ -1338,8 +1278,6 @@ export async function getPaginatedAndFilterableAssets({
   excludeTagsQuery = false,
   excludeSearchFromView = false,
   excludeLocationQuery = false,
-  bookingTab,
-  currentBookingId,
 }: {
   request: LoaderFunctionArgs["request"];
   organizationId: Organization["id"];
@@ -1353,8 +1291,6 @@ export async function getPaginatedAndFilterableAssets({
    *  instead of the AssetSearchView
    */
   excludeSearchFromView?: boolean;
-  bookingTab?: "assets" | "kits";
-  currentBookingId?: Booking["id"];
 }) {
   const searchParams = getCurrentSearchParams(request);
   const paramsValues = getParamsValues(searchParams);
@@ -1445,8 +1381,6 @@ export async function getPaginatedAndFilterableAssets({
       unhideAssetsBookigIds,
       locationIds,
       teamMemberIds,
-      tab: bookingTab,
-      currentBookingId,
     });
     const totalPages = Math.ceil(totalAssets / perPage);
 
