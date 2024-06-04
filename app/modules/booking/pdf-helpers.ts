@@ -138,17 +138,11 @@ export const getBookingAssetsCustomHeader = ({
               display: flex;
               justify-content: space-between;
               align-items: center;
-              padding-bottom:20px;
-              border-bottom: 2px solid #bfbfbf;
             }
             .header-main img {
               height: 40px;
               width: 40px;
               object-fit: cover;
-              border-width: 1px;
-              border-radius: 4px;
-              padding: 1px;
-              border: 1px solid #bfbfbf;
             }
             .text {
               max-width: 400px; /* Adjust this value as needed */
@@ -162,9 +156,10 @@ export const getBookingAssetsCustomHeader = ({
               align-items: center;
               padding-left: 20px;
               overflow: hidden;
+              gap:2px;
             } 
             .header-main .header-content {
-            color:  rgba(0, 0, 0, 0.6);
+              color:  rgba(0, 0, 0, 0.6);
             }
         </style>
         <div class="header">
@@ -172,7 +167,7 @@ export const getBookingAssetsCustomHeader = ({
             <img src="${base64Image}" alt="logo">
             <div class="header-content">
             <div class="text">${
-              booking?.name || ""
+              booking.name
             }</div><span> | ${new Date().toLocaleDateString()} | Page <span class="pageNumber"></span>/<span class="totalPages"></span></span>
             </div>
             </div>
