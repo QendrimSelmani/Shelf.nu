@@ -16,7 +16,7 @@ import { Spinner } from "../shared/spinner";
 
 export const GenerateBookingPdf = ({
   booking,
-  timeStamp
+  timeStamp,
 }: {
   booking: {
     id: Booking["id"];
@@ -27,11 +27,9 @@ export const GenerateBookingPdf = ({
 }) => {
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const totalAssets = booking.assets.length;
-  const url = `/bookings/${booking.id.toString()}/generate-pdf/${
-    booking.name
-  }-${new Date()
+  const url = `/bookings/${booking.id.toString()}/generate-pdf/booking-checklist-${new Date()
     .toISOString()
-    .slice(0, 10)}.pdf?timeStamp=${timeStamp}`;    
+    .slice(0, 10)}.pdf?timeStamp=${timeStamp}`;
   const handleIframeLoad = () => {
     setIframeLoaded(true);
   };
@@ -90,6 +88,17 @@ export const GenerateBookingPdf = ({
             <AlertDialogCancel asChild>
               <Button variant="secondary">Cancel</Button>
             </AlertDialogCancel>
+            <Button
+              to={url}
+              variant="secondary"
+              role="link"
+              download={true}
+              reloadDocument={true}
+              disabled={!iframeLoaded}
+              icon="download"
+            >
+              Download
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -11,7 +11,7 @@ import type {
 import { OrganizationRoles } from "@prisma/client";
 import puppeteer from "puppeteer";
 import { db } from "~/database/db.server";
-import { CHROME_EXECUTABLE_PATH, SERVER_URL } from "~/utils/env";
+import { CHROME_EXECUTABLE_PATH, NODE_ENV, SERVER_URL } from "~/utils/env";
 import { ShelfError } from "~/utils/error";
 import { getBooking } from "./service.server";
 import { getQrCodeMaps } from "../qr/service.server";
@@ -42,6 +42,7 @@ async function getImageAsBase64(url: string) {
 
     // Convert the image data to a Base64-encoded string
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error("Error fetching image:", error);
     return null;
   }
@@ -128,31 +129,53 @@ export const getBookingAssetsCustomHeader = ({
         <style>
             .header {
                 font-size: 10px;
-                text-align: right;
                 width: 100%;
-                padding: 0 20px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
+                padding: 0 30px;
                 box-sizing: border-box;
-                margin-bottom:30px;,
                 font-family: Inter, sans-serif;
             }
-            .header img {
-                height: 40px;
-                width: 40px;
-                object-fit: cover
+            .header-main{
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding-bottom:20px;
+              border-bottom: 2px solid #bfbfbf;
             }
-            .header .text {
-                text-align: right;
-                color: rgba(0, 0, 0, 0.6);
+            .header-main img {
+              height: 40px;
+              width: 40px;
+              object-fit: cover;
+              border-width: 1px;
+              border-radius: 4px;
+              padding: 1px;
+              border: 1px solid #bfbfbf;
+            }
+            .text {
+              max-width: 400px; /* Adjust this value as needed */
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+              color: rgba(0, 0, 0, 0.6);
+            }
+            .header-content {
+              display: flex;
+              align-items: center;
+              padding-left: 20px;
+              overflow: hidden;
+            } 
+            .header-main .header-content {
+            color:  rgba(0, 0, 0, 0.6);
             }
         </style>
         <div class="header">
+            <div class="header-main">
             <img src="${base64Image}" alt="logo">
-            <span class="text">${
+            <div class="header-content">
+            <div class="text">${
               booking?.name || ""
-            } | <span class="date"></span> | Page <span class="pageNumber"></span>/<span class="totalPages"></span></span>
+            }</div><span> | ${new Date().toLocaleDateString()} | Page <span class="pageNumber"></span>/<span class="totalPages"></span></span>
+            </div>
+            </div>
         </div>
     `;
 };
@@ -163,7 +186,10 @@ export async function generatePdfContent(
   styles?: Record<string, string>
 ) {
   const browser = await puppeteer.launch({
-    executablePath: CHROME_EXECUTABLE_PATH || "/usr/bin/google-chrome-stable",
+    executablePath:
+      NODE_ENV !== "development"
+        ? CHROME_EXECUTABLE_PATH || "/usr/bin/google-chrome-stable"
+        : undefined,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
   const fullHtmlContent = `
@@ -189,7 +215,7 @@ export async function generatePdfContent(
     displayHeaderFooter: true,
     headerTemplate: headerTemplate || "",
     margin: {
-      top: "80px",
+      top: "120px",
       bottom: "30px",
       left: "20px",
       right: "20px",

@@ -11,7 +11,6 @@ import {
 } from "~/modules/booking/pdf-helpers";
 import { SERVER_URL } from "~/utils/env";
 import { makeShelfError } from "~/utils/error";
-
 import { error, getParams } from "~/utils/http.server";
 import {
   PermissionAction,
@@ -56,7 +55,6 @@ export const loader = async ({
       htmlContent,
       getBookingAssetsCustomHeader(pdfMeta)
     );
-
     return new Response(pdfBuffer, {
       status: 200,
       headers: {
@@ -77,8 +75,8 @@ const styles = {
     maxWidth: "210mm", // A4 width
     margin: "0 auto",
     boxSizing: "border-box",
-    fontFamily: "Inter"
-    },
+    fontFamily: "Inter",
+  },
   headerText: {
     marginBottom: "20px",
   },
@@ -106,7 +104,7 @@ const styles = {
   },
   infoLabel: {
     fontWeight: "bold",
-    width: "150px",
+    minWidth: "150px",
   },
   infoValue: {
     flexGrow: "1",
@@ -124,8 +122,11 @@ const styles = {
     textAlign: "left",
     fontSize: "14px",
   },
+  tableRow: {
+    verticalAlign: "top",
+  },
   tableCell: {
-    border: "1px solid #bfbfbf",
+    borderBottom: "1px solid #bfbfbf",
     padding: "10px",
     textAlign: "left",
     fontSize: "14px",
@@ -135,16 +136,22 @@ const styles = {
   qrcodeInfo: {
     display: "flex",
     flexDirection: "row",
-    gap: "4px",
     alignItems: "center",
+    gap: "0.75rem",
   },
   img: {
+    width: "55px",
     height: "55px",
     objectFit: "cover",
   },
+  assetImg: {
+    borderWidth: "1px",
+    borderRadius: "4px",
+    padding: "1px",
+    border: "1px solid #bfbfbf",
+  },
   checkbox: {
     display: "block",
-    margin: "0 auto",
     height: "20px",
     width: "20px",
     border: "none",
@@ -197,23 +204,23 @@ const BookingPDFPreview = ({ pdfMeta }: { pdfMeta: PdfDbResult }) => {
         </thead>
         <tbody>
           {assets.map((asset, index) => (
-            <tr key={index}>
+            <tr key={index} style={styles.tableRow}>
               <td style={styles.tableCell}>
                 <div
                   style={{
                     display: "flex",
+                    alignItems: "flex-start",
                     justifyContent: "space-between",
-                    alignItems: "center",
                   }}
                 >
-                  {index + 1}
+                  <span>{index + 1}</span>
                   <img
                     src={
                       asset?.mainImage ||
                       `${SERVER_URL}/static/images/asset-placeholder.jpg`
                     }
                     alt="Asset"
-                    style={styles.img}
+                    style={{ ...styles.img, ...styles.assetImg }}
                   />
                 </div>
               </td>
