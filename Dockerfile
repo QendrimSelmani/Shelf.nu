@@ -39,7 +39,7 @@ RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y chromium chromium-sandbox && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
-ENV CHROME_EXECUTABLE_PATH="/usr/bin/google-chrome-stable"
+ENV CHROME_EXECUTABLE_PATH="/usr/bin/chromium"
 
 
 COPY --from=build /src/node_modules /src/node_modules
