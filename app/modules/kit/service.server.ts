@@ -168,9 +168,9 @@ export async function getPaginatedAndFilterableKits({
     }
 
     const unavailableBookingStatuses = [
-      BookingStatus.DRAFT,
       BookingStatus.RESERVED,
       BookingStatus.ONGOING,
+      BookingStatus.OVERDUE,
     ];
 
     /**
@@ -182,7 +182,6 @@ export async function getPaginatedAndFilterableKits({
       where.assets = {
         every: {
           organizationId,
-          availableToBook: true,
           custody: null,
           bookings: {
             every: {
@@ -237,7 +236,7 @@ export async function getPaginatedAndFilterableKits({
       });
     }
 
-    const [kits, totalKits] = await Promise.all([
+    let [kits, totalKits] = await Promise.all([
       db.kit.findMany({
         skip,
         take,
@@ -254,6 +253,11 @@ export async function getPaginatedAndFilterableKits({
         },
       }),
     ]);
+
+    /** Filter our the kits with 0 assets. WE do it like this because prisma doesnt allow us to do it in the query */
+    if (hideUnavailable) {
+      kits = kits.filter(({ assets }) => assets.length);
+    }
 
     const totalPages = Math.ceil(totalKits / perPage);
 

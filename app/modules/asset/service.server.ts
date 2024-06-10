@@ -170,10 +170,11 @@ async function getAssetsFromView(params: {
     /** If the search string exists, add it to the where object */
     if (search) {
       const words = search
+        .replace(/([()&|!'<>])/g, "\\$1") // escape special characters
         .trim()
         .replace(/ +/g, " ") //replace multiple spaces into 1
         .split(" ")
-        .map((w) => w.replace(/[^a-zA-Z0-9\-_]/g, "") + ":*") //remove uncommon special character
+        .map((w) => w.trim() + ":*") //remove leading and trailing spaces
         .filter(Boolean)
         .join(" & ");
       where.searchVector = {
@@ -737,10 +738,14 @@ export async function createAsset({
 
     /** If custom fields are passed, create them */
     if (customFieldsValues && customFieldsValues.length > 0) {
+      const customFieldValuesToAdd = customFieldsValues.filter(
+        (cf) => !!cf.value
+      );
+
       Object.assign(data, {
         /** Custom fields here refers to the values, check the Schema for more info */
         customFields: {
-          create: customFieldsValues?.map(
+          create: customFieldValuesToAdd?.map(
             ({ id, value }) =>
               id &&
               value && {

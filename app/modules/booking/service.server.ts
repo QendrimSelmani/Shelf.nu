@@ -151,8 +151,7 @@ export async function upsertBooking(
     > & { assetIds: Asset["id"][] }
   >,
   hints: ClientHint,
-  isSelfService: boolean = false,
-  kitIds: Kit["id"][] = []
+  isSelfService: boolean = false
 ) {
   try {
     const {
@@ -166,6 +165,14 @@ export async function upsertBooking(
     } = booking;
     let data: Prisma.BookingUpdateInput = { ...rest };
 
+    const assetsWithKits = id
+      ? await db.asset.findMany({
+          where: { bookings: { some: { id } } },
+          select: { id: true, kitId: true },
+        })
+      : null;
+
+    const kitIds = getKitIdsByAssets(assetsWithKits ?? []);
     const hasKits = kitIds.length > 0;
 
     if (assetIds?.length) {
