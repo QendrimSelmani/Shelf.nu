@@ -196,10 +196,9 @@ export function AvailabilityBadge({
  * A kit is not available for the following reasons
  * 1. Kit has unavailable status
  * 2. Kit or some asset is in custody
- * 3. Kit is checked out
- * 4. Some of the assets are in custody
- * 5. Some of the assets are already booked for that period (for that booking)
- * 6. If kit has no assets
+ * 3. Some of the assets are in custody
+ * 4. Some of the assets are already booked for that period (for that booking)
+ * 5. If kit has no assets
  */
 export function getKitAvailabilityStatus(
   kit: KitForBooking,
@@ -219,6 +218,8 @@ export function getKitAvailabilityStatus(
 
   const isKitWithoutAssets = kit.assets.length === 0;
 
+  const someAssetMarkedUnavailable = kit.assets.some((a) => !a.availableToBook);
+
   const unavailableBookingStatuses = [
     BookingStatus.RESERVED,
     BookingStatus.ONGOING,
@@ -233,20 +234,13 @@ export function getKitAvailabilityStatus(
         b.id !== currentBookingId
     );
 
-  const someAssetMarkedUnavailable = kit.assets.some((a) => !a.availableToBook);
-
   return {
     isCheckedOut,
     isInCustody,
     isKitWithoutAssets,
-    someAssetHasUnavailableBooking,
     someAssetMarkedUnavailable,
-    isKitUnavailable: [
-      isCheckedOut,
-      isInCustody,
-      isKitWithoutAssets,
-      someAssetHasUnavailableBooking,
-    ].some(Boolean),
+    someAssetHasUnavailableBooking,
+    isKitUnavailable: [isInCustody, isKitWithoutAssets].some(Boolean),
   };
 }
 
@@ -281,16 +275,6 @@ export function KitAvailabilityLabel({ kit }: { kit: KitForBooking }) {
     );
   }
 
-  if (someAssetHasUnavailableBooking) {
-    return (
-      <AvailabilityBadge
-        badgeText="Already booked"
-        tooltipTitle="Kit is already part of a booking"
-        tooltipContent="This kit is added to a booking that is overlapping the selected time period."
-      />
-    );
-  }
-
   if (isKitWithoutAssets) {
     return (
       <AvailabilityBadge
@@ -308,6 +292,16 @@ export function KitAvailabilityLabel({ kit }: { kit: KitForBooking }) {
         tooltipTitle="Kit is unavailable for booking"
         tooltipContent="Some of the assets of this kits are marked as unavailable for booking by an administrator."
         className="border-gray-200 bg-gray-100 text-gray-500"
+      />
+    );
+  }
+
+  if (someAssetHasUnavailableBooking) {
+    return (
+      <AvailabilityBadge
+        badgeText="Already booked"
+        tooltipTitle="Kit is already part of a booking"
+        tooltipContent="This kit is already added to another booking."
       />
     );
   }

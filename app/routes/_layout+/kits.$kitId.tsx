@@ -81,6 +81,7 @@ export async function loader({ context, request, params }: LoaderFunctionArgs) {
               status: true,
               custody: { select: { id: true } },
               bookings: { select: { status: true } },
+              availableToBook: true,
             },
           },
           custody: { select: { custodian: true } },
@@ -287,7 +288,7 @@ export default function KitDetails() {
         subHeading={
           <KitStatusBadge
             status={kit.status}
-            availableToBook={kit.status === "AVAILABLE"}
+            availableToBook={!kit.assets.some((a) => !a.availableToBook)}
           />
         }
       >
