@@ -17,7 +17,10 @@ import { GrayBadge } from "~/components/shared/gray-badge";
 import { Td, Th } from "~/components/table";
 import { db } from "~/database/db.server";
 import { useUserIsSelfService } from "~/hooks/user-user-is-self-service";
-import { getPaginatedAndFilterableKits } from "~/modules/kit/service.server";
+import {
+  getPaginatedAndFilterableKits,
+  updateKitsWithBookingCustodians,
+} from "~/modules/kit/service.server";
 import { appendToMetaTitle } from "~/utils/append-to-meta-title";
 import { makeShelfError, ShelfError } from "~/utils/error";
 import { data, error, getCurrentSearchParams } from "~/utils/http.server";
@@ -26,6 +29,7 @@ import {
   PermissionEntity,
 } from "~/utils/permissions/permission.validator.server";
 import { requirePermission } from "~/utils/roles.server";
+import { resolveTeamMemberName } from "~/utils/user";
 
 export async function loader({ context, request }: LoaderFunctionArgs) {
   const authSession = context.getSession();
@@ -41,7 +45,7 @@ export async function loader({ context, request }: LoaderFunctionArgs) {
 
     const searchParams = getCurrentSearchParams(request);
 
-    const [
+    let [
       { kits, totalKits, perPage, page, totalPages, search },
       teamMembers,
       totalTeamMembers,
@@ -77,6 +81,8 @@ export async function loader({ context, request }: LoaderFunctionArgs) {
     if (totalPages !== 0 && page > totalPages) {
       return redirect("/kits");
     }
+
+    kits = await updateKitsWithBookingCustodians(kits);
 
     const header = {
       title: "Kits",
@@ -155,6 +161,11 @@ export default function KitsIndexPage() {
               placeholder="Search team members"
               countKey="totalTeamMembers"
               initialDataKey="teamMembers"
+              transformItem={(item) => ({
+                ...item,
+                id: item.metadata?.userId ? item.metadata.userId : item.id,
+              })}
+              renderItem={(item) => resolveTeamMemberName(item)}
             />
           )}
         </Filters>
@@ -191,6 +202,9 @@ function ListContent({
               name: true;
               user: {
                 select: {
+                  firstName: true;
+                  lastName: true;
+                  email: true;
                   profilePicture: true;
                 };
               };
@@ -264,7 +278,23 @@ function ListContent({
                     alt=""
                   />
                 ) : null}
-                <span className="mt-px">{item.custody.custodian.name}</span>
+                <span className="mt-px">
+                  {resolveTeamMemberName({
+                    name: item?.custody?.custodian.name,
+                    user: item?.custody?.custodian?.user
+                      ? {
+                          firstName:
+                            item?.custody?.custodian?.user?.firstName || null,
+                          lastName:
+                            item?.custody?.custodian?.user?.lastName || null,
+                          profilePicture:
+                            item?.custody?.custodian?.user?.profilePicture ||
+                            null,
+                          email: item?.custody?.custodian?.user?.email || "",
+                        }
+                      : undefined,
+                  })}
+                </span>
               </>
             </GrayBadge>
           ) : null}

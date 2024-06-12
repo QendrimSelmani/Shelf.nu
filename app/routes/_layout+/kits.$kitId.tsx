@@ -51,6 +51,7 @@ import {
 } from "~/utils/permissions/permission.validator.server";
 import { requirePermission } from "~/utils/roles.server";
 import { tw } from "~/utils/tw";
+import { resolveTeamMemberName } from "~/utils/user";
 
 export async function loader({ context, request, params }: LoaderFunctionArgs) {
   const authSession = context.getSession();
@@ -71,7 +72,7 @@ export async function loader({ context, request, params }: LoaderFunctionArgs) {
       action: PermissionAction.read,
     });
 
-    const [kit, assets] = await Promise.all([
+    let [kit, assets] = await Promise.all([
       getKit({
         id: kitId,
         organizationId,
@@ -84,7 +85,15 @@ export async function loader({ context, request, params }: LoaderFunctionArgs) {
               availableToBook: true,
             },
           },
-          custody: { select: { custodian: true } },
+          custody: {
+            select: {
+              custodian: {
+                include: {
+                  user: { select: { firstName: true, lastName: true } },
+                },
+              },
+            },
+          },
         },
       }),
       getAssetsForKits({
@@ -250,11 +259,6 @@ export async function action({ context, request, params }: ActionFunctionArgs) {
 
 export default function KitDetails() {
   const { kit } = useLoaderData<typeof loader>();
-  const _kit = kit as unknown as Prisma.KitGetPayload<{
-    include: {
-      assets: { select: { bookings: { select: { status: true } } } };
-    };
-  }>;
 
   const isSelfService = useUserIsSelfService();
 
@@ -263,6 +267,7 @@ export default function KitDetails() {
    * 1. Kit has AVAILABLE status
    * 2. Kit has a booking whose status is one of the following
    *    DRAFT
+   *    RESERVED
    *    ARCHIVED
    *    CANCELLED
    *    COMPLETE
@@ -270,12 +275,13 @@ export default function KitDetails() {
    */
   const allowedBookingStatus: BookingStatus[] = [
     BookingStatus.DRAFT,
+    BookingStatus.RESERVED,
     BookingStatus.ARCHIVED,
     BookingStatus.CANCELLED,
     BookingStatus.COMPLETE,
   ];
-  const kitIsAvailable = _kit.assets.length
-    ? _kit.assets[0]?.bookings.every((b) =>
+  const kitIsAvailable = kit.assets.length
+    ? kit.assets[0]?.bookings.every((b) =>
         allowedBookingStatus.includes(b.status)
       )
     : kit.status === "AVAILABLE";
@@ -320,7 +326,7 @@ export default function KitDetails() {
           ) : null}
 
           {/* Kit Custody */}
-          {!isSelfService && !kitIsAvailable && kit?.custody?.createdAt ? (
+          {!isSelfService && kit?.custody?.dateDisplay ? (
             <Card className="my-3">
               <div className="flex items-center gap-3">
                 <img
@@ -332,7 +338,7 @@ export default function KitDetails() {
                   <p className="">
                     In custody of{" "}
                     <span className="font-semibold">
-                      {kit.custody?.custodian.name}
+                      {resolveTeamMemberName(kit.custody.custodian)}
                     </span>
                   </p>
                   <span>Since {kit.custody.dateDisplay}</span>
@@ -354,10 +360,11 @@ export default function KitDetails() {
             {!isSelfService ? (
               <ControlledActionButton
                 canUseFeature={canManageAssets}
+                skipCta
                 buttonContent={{
                   title: "Manage assets",
                   message:
-                    "You are not allowed to manage assets for this kit because its part of an ongoing booking.",
+                    "You are not allowed to manage assets for this kit because its part of an ongoing booking",
                 }}
                 buttonProps={{
                   as: "button",
@@ -380,10 +387,11 @@ export default function KitDetails() {
                   <div className="hidden lg:block">
                     <ControlledActionButton
                       canUseFeature={canManageAssets}
+                      skipCta
                       buttonContent={{
                         title: "Manage assets",
                         message:
-                          "You are not allowed to manage assets for this kit because its part of an ongoing booking.",
+                          "You are not allowed to manage assets for this kit because its part of an ongoing booking",
                       }}
                       buttonProps={{
                         as: "button",
