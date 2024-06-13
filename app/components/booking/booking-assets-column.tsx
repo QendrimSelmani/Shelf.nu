@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import type { Kit } from "@prisma/client";
 import { AssetStatus, BookingStatus } from "@prisma/client";
 import { useLoaderData } from "@remix-run/react";
-import { useBookingStatus } from "~/hooks/use-booking-status";
+import { useBookingStatusHelpers } from "~/hooks/use-booking-status";
 import { useUserIsSelfService } from "~/hooks/user-user-is-self-service";
 import type { BookingWithCustodians } from "~/routes/_layout+/bookings";
 import type { AssetWithBooking } from "~/routes/_layout+/bookings.$bookingId.add-assets";
@@ -31,7 +31,7 @@ export function BookingAssetsColumn() {
   const hasItems = items?.length > 0;
   const isSelfService = useUserIsSelfService();
   const { isDraft, isReserved, isCompleted, isArchived } =
-    useBookingStatus(booking);
+    useBookingStatusHelpers(booking);
 
   const manageAssetsUrl = useMemo(
     () =>
@@ -192,7 +192,7 @@ const ListAssetContent = ({ item }: { item: AssetWithBooking }) => {
   const { booking } = useLoaderData<{ booking: BookingWithCustodians }>();
   const isSelfService = useUserIsSelfService();
   const { isOngoing, isCompleted, isArchived, isOverdue, isReserved } =
-    useBookingStatus(booking);
+    useBookingStatusHelpers(booking);
 
   /** Weather the asset is checked out in a booking different than the current one */
   const isCheckedOut = useMemo(
