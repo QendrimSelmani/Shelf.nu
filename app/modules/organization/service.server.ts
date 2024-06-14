@@ -45,6 +45,33 @@ export const getOrganizationByUserId = async ({
   }
 };
 
+export const getOrganizationsBySsoDomain = async (domain: string) =>
+  db.organization
+    .findMany({
+      // We dont throw as we need to handle the case where no organization is found for the domain in the app logic
+      where: {
+        ssoDetails: {
+          is: {
+            domain: domain,
+          },
+        },
+        type: "TEAM",
+      },
+      include: {
+        ssoDetails: true,
+      },
+    })
+    .catch((cause) => {
+      throw new ShelfError({
+        cause,
+        title: "Organization not found",
+        message:
+          "It looks like the organization you're trying to log in to is not found. Please contact our support team to get access to your organization.",
+        additionalData: { domain },
+        label,
+      });
+    });
+
 export async function createOrganization({
   name,
   userId,
@@ -118,14 +145,24 @@ export async function updateOrganization({
   image,
   userId,
   currency,
+  ssoDetails,
 }: Pick<Organization, "name" | "id" | "currency"> & {
   userId: User["id"];
   image: File | null;
+  ssoDetails?: {
+    selfServiceGroupId: string;
+    adminGroupId: string;
+  };
 }) {
   try {
     const data = {
       name,
       currency,
+      ...(ssoDetails && {
+        ssoDetails: {
+          update: ssoDetails,
+        },
+      }),
     };
 
     if (image?.size && image?.size > 0) {
@@ -184,12 +221,14 @@ export async function getUserOrganizations({ userId }: { userId: string }) {
             userId: true,
             updatedAt: true,
             currency: true,
+            enabledSso: true,
             owner: {
               select: {
                 id: true,
                 email: true,
               },
             },
+            ssoDetails: true,
           },
         },
       },
@@ -234,6 +273,31 @@ export async function getOrganizationAdminsEmails({
       message:
         "Something went wrong while fetching organization admins emails. Please try again or contact support.",
       additionalData: { organizationId },
+      label,
+    });
+  }
+}
+
+export async function toggleOrganizationSso({
+  organizationId,
+  enabledSso,
+}: {
+  organizationId: string;
+  enabledSso: boolean;
+}) {
+  try {
+    return await db.organization.update({
+      where: { id: organizationId, type: OrganizationType.TEAM },
+      data: {
+        enabledSso,
+      },
+    });
+  } catch (cause) {
+    throw new ShelfError({
+      cause,
+      message:
+        "Something went wrong while toggling organization SSO. Please try again or contact support.",
+      additionalData: { organizationId, enabledSso },
       label,
     });
   }
