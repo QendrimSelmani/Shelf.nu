@@ -21,6 +21,7 @@ import { ShelfError, isLikeShelfError } from "~/utils/error";
 import type { ValidationError } from "~/utils/http";
 import { getCurrentSearchParams } from "~/utils/http.server";
 import { getParamsValues } from "~/utils/list";
+import { getRoleFromGroupId } from "~/utils/roles.server";
 import {
   deleteProfilePicture,
   getPublicFileURL,
@@ -29,6 +30,7 @@ import {
 import { randomUsernameFromEmail } from "~/utils/user";
 import type { UpdateUserPayload } from "./types";
 import { defaultUserCategories } from "../category/default-categories";
+import { getOrganizationsBySsoDomain } from "../organization/service.server";
 
 const label: ErrorLabel = "User";
 
@@ -162,6 +164,77 @@ export async function createUserOrAttachOrg({
   }
 }
 
+export async function createUserFromSSO(
+  authSession: AuthSession,
+  userData: {
+    firstName: string;
+    lastName: string;
+    groups: string[];
+  }
+) {
+  try {
+    const { email, userId } = authSession;
+    const { firstName, lastName, groups } = userData;
+    const domain = email.split("@")[1];
+
+    // @TODO: We need to also create a teamMember.
+    // When we are inviting normal users to the org, we create a teamMember so we need to handle it in this case as well
+    const user = await createUser({
+      email,
+      firstName,
+      lastName,
+      userId,
+      username: randomUsernameFromEmail(email),
+      isSSO: true,
+    });
+
+    const organizations = await getOrganizationsBySsoDomain(domain);
+
+    for (let org of organizations) {
+      const { ssoDetails } = org;
+      if (!ssoDetails) {
+        throw new ShelfError({
+          cause: null,
+          title: "Organization doesnt have SSO",
+          message:
+            "It looks like the organization you're trying to log in to doesn't have SSO enabled.",
+          additionalData: { org, domain },
+          label,
+        });
+      }
+      const role = getRoleFromGroupId(ssoDetails, groups);
+      if (role) {
+        // Attach the user to the org with the correct role
+        await createUserOrgAssociation(db, {
+          userId: user.id,
+          organizationIds: [org.id], // org.id instead of orgIds
+          roles: [role], // role instead of roles
+        });
+      }
+    }
+
+    /** Create teamMember for each organization */
+    await db.teamMember.createMany({
+      data: organizations.map((org) => ({
+        name: `${firstName} ${lastName}`,
+        organizationId: org.id,
+        userId,
+      })),
+    });
+
+    return { user, org: organizations[0] };
+  } catch (cause) {
+    throw new ShelfError({
+      cause,
+      message: isLikeShelfError(cause)
+        ? cause.message
+        : `There was an issue with creating/attaching user with email: ${authSession.email}`,
+      additionalData: { email: authSession.email, userId: authSession.userId },
+      label,
+    });
+  }
+}
+
 export async function createUser(
   payload: Pick<
     AuthSession & { username: string },
@@ -170,9 +243,20 @@ export async function createUser(
     organizationId?: Organization["id"];
     roles?: OrganizationRoles[];
     firstName?: User["firstName"];
+    lastName?: User["lastName"];
+    isSSO?: boolean;
   }
 ) {
-  const { email, userId, username, organizationId, roles, firstName } = payload;
+  const {
+    email,
+    userId,
+    username,
+    organizationId,
+    roles,
+    firstName,
+    lastName,
+    isSSO,
+  } = payload;
 
   try {
     return await db.$transaction(
@@ -183,26 +267,43 @@ export async function createUser(
             id: userId,
             username,
             firstName,
-            organizations: {
-              create: [
-                {
-                  name: "Personal",
-                  categories: {
-                    create: defaultUserCategories.map((c) => ({
-                      ...c,
-                      userId,
-                    })),
+            lastName,
+            ...(isSSO && {
+              organizations: {
+                create: [
+                  {
+                    name: "Personal",
+                    categories: {
+                      create: defaultUserCategories.map((c) => ({
+                        ...c,
+                        userId,
+                      })),
+                    },
                   },
-                },
-              ],
-            },
+                ],
+              },
+            }),
             roles: {
               connect: {
                 name: Roles["USER"],
               },
             },
+            ...(isSSO && {
+              // When user is coming from SSO, we set them as onboarded as we already have their first and last name and they dont need a password.
+              onboarded: true,
+              sso: true,
+            }),
           },
           include: {
+            userOrganizations: {
+              include: {
+                organization: {
+                  include: {
+                    ssoDetails: true,
+                  },
+                },
+              },
+            },
             organizations: true,
           },
         });
@@ -220,11 +321,12 @@ export async function createUser(
          * 2. For the org that the user is being attached to
          */
         await Promise.all([
-          createUserOrgAssociation(tx, {
-            userId: user.id,
-            organizationIds: [user.organizations[0].id],
-            roles: [OrganizationRoles.OWNER],
-          }),
+          !isSSO && // We only create a personal org for non-SSO users
+            createUserOrgAssociation(tx, {
+              userId: user.id,
+              organizationIds: [user.organizations[0].id],
+              roles: [OrganizationRoles.OWNER],
+            }),
           organizationId &&
             roles?.length &&
             createUserOrgAssociation(tx, {
